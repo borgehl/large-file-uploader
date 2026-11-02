@@ -1,27 +1,85 @@
+# Large File Uploader.  Run:  cp .env.example .env  &&  docker compose up --build -d
+# TLS is terminated by the host nginx (see docs/host-nginx.conf); this stack listens on 127.0.0.1 only.
 services:
-  php-web:
+  backend:
     build:
-      context: ./php/
-    image: none-of-this-is-necessary
-    container_name: large-file-uploader
+      context: ./backend
+      target: prod
+    image: lfu-backend
+    pull_policy: never
+    container_name: lfu-backend
     init: true
-    
-    volumes:
-      - ./html:/var/www/html
-      - ./uploads:/tmp/uploads
-    
-    network_mode: "host"
-
-  go-web:
-    build:
-      context: ./go/
-    image: go-away
-    container_name: yeehaw
-    init: true
+    restart: unless-stopped
+    user: "${LFU_UID:-10001}:${LFU_GID:-10001}"
+    group_add:
+      - "${FILE_GID:-10001}"
     env_file:
       - .env
+    environment:
+      LISTEN_ADDR: ":8080"
+      UPLOAD_DIR: /data/uploads
+      DB_PATH: /data/db/lfu.sqlite
+      TRUSTED_PROXY_CIDR: "172.29.77.0/24"
+      FILE_GID: "${FILE_GID:-10001}"
     volumes:
-      - "${UPLOAD_MOUNT}:${UPLOAD_PATH}"
-      - "./go/static/:/server/static/"
-    
-    network_mode: "host"
+      # Bind mount so admins can collect finished files straight from the host.
+      - "${UPLOAD_HOST_DIR:-./data/uploads}:/data/uploads"
+      - lfu-db:/data/db
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "/server", "healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - lfu
+
+  frontend:
+    build:
+      context: ./frontend
+      target: prod
+    image: lfu-frontend
+    pull_policy: never
+    container_name: lfu-frontend
+    init: true
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - lfu
+
+  nginx:
+    image: nginx:1.29-alpine
+    container_name: lfu-nginx
+    init: true
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    ports:
+      - "127.0.0.1:${PORT:-8081}:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - lfu
+
+networks:
+  lfu:
+    ipam:
+      config:
+        - subnet: 172.29.77.0/24
+
+volumes:
+  lfu-db:

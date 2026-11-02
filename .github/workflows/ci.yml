@@ -1,0 +1,48 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          # go.mod says 1.26.0, which is the minimum language version, not the patch level we want
+          # to build with. Take the newest 1.26.x so standard-library fixes are included.
+          go-version: '1.26'
+          check-latest: true
+      - run: go vet ./...
+      - run: go test -race ./...
+      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test # tsc -b, eslint, vitest (e2e suites skip without a live stack)
+      - run: pnpm build
+      - run: pnpm audit --prod
+
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --target test ./backend
+      - run: docker build --target test ./frontend
+      - run: docker build --target prod -t lfu-backend ./backend
+      - run: docker build --target prod -t lfu-frontend ./frontend

@@ -1,2 +1,6 @@
-uploads/
+/uploads/
 .env
+/data/
+node_modules/
+dist/
+*.sqlite*
