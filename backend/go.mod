@@ -2,6 +2,8 @@ module lfu
 
 go 1.26.0
 
+toolchain go1.26.10
+
 require (
 	github.com/tus/tusd/v2 v2.10.1
 	golang.org/x/crypto v0.58.0
